@@ -27,13 +27,19 @@ if "history" not in st.session_state:
         {"date": "2026-10-22 13:10", "status": "성공", "feedback": "잔반 제로 실천 완료!"}
     ]
 
-# Gemini API 설정 함수
-def get_gemini_client():
+# Gemini API 설정 및 모델 로드 함수
+def get_gemini_model():
+    # Streamlit secrets 또는 환경 변수에서 API 키 로드
     api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return None
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-2.5-flash-lite")
+    try:
+        genai.configure(api_key=api_key)
+        # 범용적으로 지원되는 안정적인 멀티모달 모델명으로 설정 (필요시 gemini-1.5-flash 또는 최신 모델 지정)
+        return genai.GenerativeModel("gemini-1.5-flash")
+    except Exception as e:
+        st.error(f"Gemini 초기화 오류: {e}")
+        return None
 
 # -----------------------------------------------------------------------------
 # 2. 메인 화면 레이아웃 및 사이드바 Navigation
@@ -69,10 +75,10 @@ if menu == "📸 잔반 제로 인증":
         st.image(image, caption="업로드한 식판 사진", use_container_width=True)
 
         if st.button("✨ 잔반 제로 검증 및 스탬프 적립"):
-            model = get_gemini_client()
+            model = get_gemini_model()
             
             if model is None:
-                st.warning("⚠️ GEMINI_API_KEY가 설정되어 있지 않아 테스트모드로 작동합니다. (자동 인증 성공 처리)")
+                st.warning("⚠️ GEMINI_API_KEY가 설정되어 있지 않아 테스트모드로 작동합니다.")
                 ai_success = True
                 ai_feedback = "[테스트 모드] 잔반 없이 깔끔한 식판입니다! 스탬프 1개가 적립되었습니다."
             else:
@@ -84,6 +90,7 @@ if menu == "📸 잔반 제로 인증":
                             "답변 첫 번째 줄에는 반드시 [PASS] 또는 [FAIL]을 작성하고, "
                             "두 번째 줄부터는 친절하고 격려하는 한 줄 피드백을 한국어로 남겨주세요."
                         )
+                        # Vision API 호출
                         response = model.generate_content([prompt, image])
                         result_text = response.text.strip()
                         
@@ -95,8 +102,8 @@ if menu == "📸 잔반 제로 인증":
                             ai_feedback = result_text.replace("[FAIL]", "").strip()
                     except Exception as e:
                         st.error(f"API 호출 중 오류가 발생했습니다: {str(e)}")
-                        ai_success = True  # 오류 시 사용자 경험을 위해 대체 승인
-                        ai_feedback = "AI 분석 오류가 발생했으나 제출 기록을 확인하여 스탬프를 적립해 드립니다."
+                        ai_success = False
+                        ai_feedback = f"AI 분석 중 오류가 발생했습니다 ({str(e)}). 다시 시도해 주세요."
 
             # 분석 결과 반영
             now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -124,7 +131,6 @@ elif menu == "🎁 스탬프 교환소":
     st.subheader("🎁 모은 스탬프로 교환하기")
     st.info(f"💡 현재 보유 스탬프: **{st.session_state.stamps}개**")
 
-    # 교환 가능한 상품 리스트
     shop_items = [
         {"name": "매점 500원 할인쿠폰", "cost": 3, "desc": "매점에서 사용할 수 있는 500원 할인권"},
         {"name": "바나나맛 우유 교환권", "cost": 5, "desc": "매점/편의점용 바나나우유 기프티콘"},
@@ -196,7 +202,7 @@ elif menu == "📅 인증 히스토리":
     if not st.session_state.history:
         st.write("아직 인증 기록이 없습니다. 잔반 제로 인증을 시작해 보세요!")
     else:
-        for idx, record in enumerate(reversed(st.session_state.history)):
+        for record in reversed(st.session_state.history):
             icon = "✅" if record["status"] == "성공" else "❌"
             st.markdown(f"#### {icon} {record['date']} - 상태: {record['status']}")
             st.info(f"💬 AI 소평: {record['feedback']}")
